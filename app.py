@@ -52,15 +52,16 @@ def apply_apple_design():
                 font-weight: bold;
                 margin-top: 10px;
             }}
-            .stTextInput>div>div>input {{
-                border-radius: 8px;
-                padding: 10px;
-                border: 1px solid {APPLE_COLORS['primary']};
+            .pineapple-animation {{
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                font-size: 2rem;
+                animation: bounce 1s infinite;
             }}
-            .stSelectbox>div>div {{
-                border-radius: 8px;
-                padding: 10px;
-                border: 1px solid {APPLE_COLORS['primary']};
+            @keyframes bounce {{
+                0%, 100% {{ transform: translateY(0); }}
+                50% {{ transform: translateY(-10px); }}
             }}
         </style>
         """,
@@ -94,10 +95,10 @@ class DataManager:
         self.service = GoogleServices(config)
 
     @st.cache_data(ttl=300, show_spinner="Carregando dados...")
-    def load_data(self, sheet_id: str) -> pd.DataFrame:
+    def load_data(_self, sheet_id: str) -> pd.DataFrame:
         """Carrega dados da planilha Google"""
         try:
-            result = self.service.sheets.spreadsheets().values().get(
+            result = _self.service.sheets.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
                 range="A:D"
             ).execute()
@@ -246,7 +247,7 @@ class AttendanceSystem:
                 if self.data_manager.save_data(self.df):
                     self._show_feedback("✅ Cadastro realizado com sucesso!")
                     self._clear_registration_form()
-                    st.balloons()
+                    self._show_pineapples_animation()
                     time.sleep(1)
                     st.rerun()
 
@@ -274,11 +275,15 @@ class AttendanceSystem:
                             self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
                             if self.data_manager.save_data(self.df):
                                 self._show_feedback("✅ Comprovante enviado com sucesso!")
-                                st.balloons()
+                                self._show_pineapples_animation()
                                 time.sleep(1)
                                 st.rerun()
                 else:
                     self._show_feedback("❌ Por favor, selecione um arquivo", "error")
+
+    def _show_pineapples_animation(self):
+        """Exibe animação de abacaxis"""
+        st.markdown('<div class="pineapple-animation">🍍 🍍 🍍</div>', unsafe_allow_html=True)
 
     def run(self):
         """Executa o sistema principal"""
@@ -288,7 +293,7 @@ class AttendanceSystem:
         with tab1:
             search_term = st.text_input(
                 "Buscar participante",
-                placeholder="Digite seu nome",
+                placeholder="Digite seu nome completo",
                 key="search_input"
             ).strip()
             if search_term:
