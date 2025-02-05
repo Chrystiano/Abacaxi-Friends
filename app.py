@@ -284,15 +284,12 @@ class AttendanceSystem:
     def run(self):
         """Executa o sistema principal"""
         st.title("🎉 Abacaxi Friends")
-        st.sidebar.markdown(
-            """
-            <a href='#' class='menu-link' onclick="window.location.hash='confirmation';">Confirmação de Presença</a>
-            <a href='#' class='menu-link' onclick="window.location.hash='registration';">Novo Cadastro</a>
-            """,
-            unsafe_allow_html=True
-        )
+        tab1, tab2 = st.tabs(["Confirmação de Presença", "Novo Cadastro"])
 
-        if st.experimental_get_query_params().get("hash") == "confirmation" or "confirmation" in st.session_state:
+        # Substituído st.experimental_get_query_params por st.query_params
+        query_params = st.query_params
+
+        with tab1:
             search_term = st.text_input(
                 "Buscar participante",
                 placeholder="Digite seu nome completo",
@@ -306,7 +303,7 @@ class AttendanceSystem:
                 else:
                     self._show_feedback("⚠️ Nenhum participante encontrado", "error")
 
-        elif st.experimental_get_query_params().get("hash") == "registration" or "registration" in st.session_state:
+        with tab2:
             self._registration_form()
 
 def main():
