@@ -1,8 +1,20 @@
+# Bibliotecas principais
 streamlit
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-google-api-python-client
-oauth2client
 pandas
-PyDrive2
+google-auth
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+
+# Dependências adicionais
+python-dotenv
+pytz
+
+# Para manipulação de arquivos e uploads
+pathlib
+
+# Para animações e feedback visual
+streamlit-extras
+
+# Para validação de dados e expressões regulares
+regex
