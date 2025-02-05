@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import time
 import re
 from pathlib import Path
@@ -51,17 +52,6 @@ def apply_apple_design():
                 color: {APPLE_COLORS['danger']};
                 font-weight: bold;
                 margin-top: 10px;
-            }}
-            .menu-link {{
-                color: {APPLE_COLORS['primary']};
-                text-decoration: none;
-                font-size: 18px;
-                margin: 10px 0;
-                display: block;
-                transition: color 0.3s ease;
-            }}
-            .menu-link:hover {{
-                color: #005bb5;
             }}
         </style>
         """,
@@ -171,25 +161,6 @@ class AttendanceSystem:
         self.df = self.data_manager.load_data(config.sheet_id)
         apply_apple_design()
 
-    def _inject_phone_mask_script(self):
-        """Injeta JavaScript para máscara de telefone"""
-        st.components.v1.html("""
-        <script>
-            document.addEventListener("DOMContentLoaded", function() {
-                const inputs = document.querySelectorAll("input[type=text]");
-                inputs.forEach(input => {
-                    input.addEventListener("input", function() {
-                        let value = this.value.replace(/\D/g, "");
-                        if (value.length > 11) value = value.slice(0, 11);
-                        if (value.length > 2) value = `(${value.slice(0, 2)}) ${value.slice(2)}`;
-                        if (value.length > 10) value = `${value.slice(0, 10)}-${value.slice(10)}`;
-                        this.value = value;
-                    });
-                });
-            });
-        </script>
-        """, height=0)
-
     def _show_feedback(self, message: str, type: str = "success"):
         """Exibe mensagens de feedback estilizadas"""
         css_class = "success-message" if type == "success" else "error-message"
@@ -260,7 +231,7 @@ class AttendanceSystem:
             key="search_input"
         ).strip()
         if search_term:
-            results = self.df[self.df["Nome"].str.contains(search_term, case=False)]
+            results = self.df[self.df["Nome"].str.contains(search_term, case=False, regex=False)]
             if not results.empty:
                 selected = st.selectbox("Selecione seu nome", results["Nome"])
                 current_status = self.df.loc[self.df["Nome"] == selected, "Status"].values[0]
@@ -293,27 +264,67 @@ class AttendanceSystem:
             else:
                 self._show_feedback("⚠️ Nenhum participante encontrado", "error")
 
+    def _authenticate_admin(self):
+        """Autenticação para acessar o Painel de Administração"""
+        st.subheader("🔒 Acesso Restrito")
+        password = st.text_input("Digite a senha de administrador:", type="password")
+        if st.button("Entrar"):
+            if password == st.secrets["admin_password"]:
+                st.session_state.authenticated = True
+                st.success("✅ Acesso autorizado!")
+                time.sleep(1)
+                st.rerun()
+            else:
+                self._show_feedback("❌ Senha incorreta. Tente novamente.", "error")
+
     def _admin_dashboard(self):
-        """Painel de administração para visualização dos dados"""
+        """Painel de administração com gráfico interativo"""
         st.subheader("📊 Painel de Administração")
+        
+        # Contagem de registros únicos por status
+        status_counts = self.df["Status"].value_counts().reset_index()
+        status_counts.columns = ["Status", "Quantidade"]
+
+        # Gráfico interativo com Plotly
+        fig = px.bar(
+            status_counts,
+            x="Status",
+            y="Quantidade",
+            title="Quantidade de Registros por Status",
+            labels={"Status": "Status", "Quantidade": "Quantidade"},
+            color="Status",
+            color_discrete_sequence=px.colors.qualitative.Pastel,
+        )
+        fig.update_layout(
+            plot_bgcolor=APPLE_COLORS["background"],
+            paper_bgcolor=APPLE_COLORS["background"],
+            font_color=APPLE_COLORS["text"],
+            title_font_size=20,
+            xaxis_title_font_size=16,
+            yaxis_title_font_size=16,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Exibir todos os dados em uma tabela
         st.dataframe(self.df)
 
     def run(self):
         """Executa o sistema principal"""
-        # Menu lateral
         st.sidebar.title("🎉 Abacaxi Friends")
         page = st.sidebar.radio(
             "Navegue pelas opções:",
             ["Confirmação de Presença", "Novo Cadastro", "Painel de Administração"]
         )
 
-        # Definir a página inicial como "Confirmação de Presença"
         if page == "Confirmação de Presença":
             self._attendance_confirmation()
         elif page == "Novo Cadastro":
             self._registration_form()
         elif page == "Painel de Administração":
-            self._admin_dashboard()
+            if "authenticated" not in st.session_state or not st.session_state.authenticated:
+                self._authenticate_admin()
+            else:
+                self._admin_dashboard()
 
 def main():
     """Função principal"""
