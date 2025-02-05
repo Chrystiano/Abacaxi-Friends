@@ -2,17 +2,14 @@ import streamlit as st
 import pandas as pd
 import os
 import json
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 from datetime import datetime
 
-# 🔒 Carregar credenciais do Google Drive do Streamlit Secrets
+# 🔒 Carregar credenciais do Streamlit Secrets
 if "gdrive_credentials" in st.secrets:
-    credentials_dict = json.loads(json.dumps(st.secrets["gdrive_credentials"]))
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        credentials_dict, ["https://www.googleapis.com/auth/drive"]
-    )
-    client = gspread.authorize(creds)
+    credentials_dict = dict(st.secrets["gdrive_credentials"])
+    creds = service_account.Credentials.from_service_account_info(credentials_dict)
 else:
     st.error("🔴 Credenciais do Google Drive não configuradas corretamente!")
 
@@ -23,40 +20,58 @@ if "gdrive" in st.secrets:
 else:
     st.error("🔴 IDs do Google Drive não foram configurados nos Secrets!")
 
-# 📂 Carregar ou criar o arquivo CSV no Google Sheets
-def load_data():
+# 📂 Conectar à API do Google Sheets
+def connect_google_sheets():
     try:
-        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
-        data = sheet.get_all_records()
-        return pd.DataFrame(data)
+        service = build("sheets", "v4", credentials=creds)
+        sheet = service.spreadsheets()
+        return sheet
     except Exception as e:
-        st.error(f"Erro ao carregar dados do Google Sheets: {e}")
-        return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
-
-# 💾 Salvar os dados atualizados no Google Sheets
-def save_data(df):
-    try:
-        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
-        sheet.clear()
-        sheet.update([df.columns.values.tolist()] + df.values.tolist())
-    except Exception as e:
-        st.error(f"Erro ao salvar dados no Google Sheets: {e}")
+        st.error(f"Erro ao conectar ao Google Sheets: {e}")
+        return None
 
 # 📤 Upload de arquivo para o Google Drive
 def upload_to_drive(file_path, file_name):
     try:
-        drive_service = client.auth.service
+        drive_service = build("drive", "v3", credentials=creds)
         file_metadata = {
             "name": file_name,
             "parents": [GDRIVE_FOLDER_ID]
         }
-        media = gspread.MediaFileUpload(file_path)
-        uploaded_file = drive_service.files().create(
-            body=file_metadata, media_body=media, fields="id"
-        ).execute()
-        return uploaded_file["id"]
+        media = drive_service.files().create(body=file_metadata, media_body=file_path, fields="id").execute()
+        return media["id"]
     except Exception as e:
         st.error(f"Erro ao enviar para o Google Drive: {e}")
+
+# 🔄 Carregar os dados do Google Sheets
+def load_data():
+    try:
+        sheet = connect_google_sheets()
+        if sheet:
+            result = sheet.values().get(spreadsheetId=GOOGLE_SHEET_ID, range="A:D").execute()
+            values = result.get("values", [])
+            if values:
+                return pd.DataFrame(values[1:], columns=values[0])  # Ignorar cabeçalho
+            else:
+                return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
+    except Exception as e:
+        st.error(f"Erro ao carregar dados do Google Sheets: {e}")
+        return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
+
+# 💾 Salvar os dados no Google Sheets
+def save_data(df):
+    try:
+        sheet = connect_google_sheets()
+        if sheet:
+            data = [df.columns.tolist()] + df.values.tolist()
+            sheet.values().update(
+                spreadsheetId=GOOGLE_SHEET_ID,
+                range="A:D",
+                valueInputOption="RAW",
+                body={"values": data}
+            ).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar dados no Google Sheets: {e}")
 
 # 🔄 Carregar os dados
 df = load_data()
