@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
-import time
 import re
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from dataclasses import dataclass
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-import plotly.express as px
 
 # Configurações de estilo Apple
 APPLE_COLORS = {
@@ -204,12 +202,14 @@ class AttendanceSystem:
             name = cols[0].text_input(
                 "Nome Completo *",
                 key="name_input",
-                placeholder="Digite o nome completo"
+                placeholder="Digite o nome completo",
+                autocomplete="name"  # Sugestão de autocompletar nome <button class="citation-flag" data-index="1">
             )
             phone = cols[1].text_input(
                 "Celular *", 
                 key="phone_input",
-                placeholder="(XX) XXXXX-XXXX"
+                placeholder="(XX) XXXXX-XXXX",
+                autocomplete="tel"  # Sugestão de autocompletar telefone <button class="citation-flag" data-index="1">
             )
             participant_type = st.selectbox(
                 "Tipo de Participante *",
@@ -280,47 +280,10 @@ class AttendanceSystem:
                     self._show_feedback("❌ Por favor, selecione um arquivo", "error")
                     st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
 
-    def _admin_area(self):
-        """Área do Admin"""
-        if "admin_authenticated" not in st.session_state or not st.session_state.admin_authenticated:
-            password = st.text_input("Senha de Admin", type="password", key="admin_password")
-            if st.button("Entrar como Admin"):
-                if password == st.secrets["admin_credentials"]["secret"]:
-                    st.session_state.admin_authenticated = True
-                    st.success("✅ Acesso concedido!")
-                    st.balloons()  # Animação de sucesso <button class="citation-flag" data-index="4">
-                else:
-                    st.error("❌ Senha incorreta")
-                    st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
-                    return
-
-        if st.session_state.get("admin_authenticated", False):
-            st.subheader("📊 Painel Admin")
-            tipo_filtro = st.selectbox("Filtrar por Tipo", ["Todos"] + list(self.df["Tipo"].unique()))
-            filtered_df = self.df if tipo_filtro == "Todos" else self.df[self.df["Tipo"] == tipo_filtro]
-
-            status_counts = filtered_df["Status"].value_counts().reset_index()
-            status_counts.columns = ["Status", "Quantidade"]
-
-            fig = px.pie(
-                status_counts,
-                names="Status",
-                values="Quantidade",
-                title="Distribuição de Status",
-                hole=0.3,
-                color_discrete_sequence=px.colors.qualitative.Pastel
-            )
-            fig.update_layout(
-                font=dict(size=14),
-                margin=dict(l=20, r=20, t=50, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
     def run(self):
         """Executa o sistema principal"""
         st.sidebar.title("🎉 Abacaxi Friends")
-        menu_option = st.sidebar.radio("Menu", ["Confirmação de Presença", "Novo Cadastro", "Área do Admin"])
+        menu_option = st.sidebar.radio("Menu", ["Confirmação de Presença", "Novo Cadastro"])
 
         if menu_option == "Confirmação de Presença":
             search_term = st.text_input(
@@ -339,9 +302,6 @@ class AttendanceSystem:
 
         elif menu_option == "Novo Cadastro":
             self._registration_form()
-
-        elif menu_option == "Área do Admin":
-            self._admin_area()
 
 def main():
     """Função principal"""
