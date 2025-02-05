@@ -3,11 +3,12 @@ import pandas as pd
 import re
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import plotly.express as px  # Para gráficos interativos <button class="citation-flag" data-index="10">
 
 # Configurações de estilo Apple
 APPLE_COLORS = {
@@ -98,7 +99,7 @@ class DataManager:
             return df
         except Exception as e:
             st.error("Erro ao carregar dados. Tente novamente.")
-            st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+            st.snow()  # Animação de erro
             return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
 
     def save_data(self, df: pd.DataFrame) -> bool:
@@ -115,7 +116,7 @@ class DataManager:
             return True
         except Exception as e:
             st.error(f"Erro ao salvar dados: {str(e)}")
-            st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+            st.snow()  # Animação de erro
             return False
 
 class FileHandler:
@@ -130,7 +131,7 @@ class FileHandler:
         """Processa e faz upload do arquivo"""
         if uploaded_file.size > 2 * 1024 * 1024:
             st.error("Arquivo excede 2MB. Por favor, envie um arquivo menor.")
-            st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+            st.snow()  # Animação de erro
             return None
         try:
             timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
@@ -152,7 +153,7 @@ class FileHandler:
             return filename
         except Exception as e:
             st.error(f"Erro no upload: {str(e)}")
-            st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+            st.snow()  # Animação de erro
             return None
 
 class AttendanceSystem:
@@ -203,13 +204,13 @@ class AttendanceSystem:
                 "Nome Completo *",
                 key="name_input",
                 placeholder="Digite o nome completo",
-                autocomplete="name"  # Sugestão de autocompletar nome <button class="citation-flag" data-index="1">
+                autocomplete="name"  # Sugestão de autocompletar nome
             )
             phone = cols[1].text_input(
                 "Celular *", 
                 key="phone_input",
                 placeholder="(XX) XXXXX-XXXX",
-                autocomplete="tel"  # Sugestão de autocompletar telefone <button class="citation-flag" data-index="1">
+                autocomplete="tel"  # Sugestão de autocompletar telefone
             )
             participant_type = st.selectbox(
                 "Tipo de Participante *",
@@ -223,15 +224,15 @@ class AttendanceSystem:
                 phone_digits = re.sub(r'\D', '', phone)
                 if not all([name, phone_digits]):
                     self._show_feedback("❌ Preencha todos os campos obrigatórios", "error")
-                    st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+                    st.snow()  # Animação de erro
                     return
                 if len(phone_digits) != 11:
                     self._show_feedback("❌ Número de celular inválido", "error")
-                    st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+                    st.snow()  # Animação de erro
                     return
                 if name.lower() in self.df["Nome"].str.lower().values:
                     self._show_feedback("❌ Nome já cadastrado", "error")
-                    st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+                    st.snow()  # Animação de erro
                     return
 
                 new_entry = pd.DataFrame([[
@@ -244,7 +245,7 @@ class AttendanceSystem:
                 if self.data_manager.save_data(self.df):
                     self._show_feedback("✅ Cadastro realizado com sucesso!")
                     self._clear_registration_form()
-                    st.balloons()  # Animação de sucesso <button class="citation-flag" data-index="4">
+                    st.balloons()  # Animação de sucesso
                     time.sleep(1)
                     st.rerun()
 
@@ -253,7 +254,7 @@ class AttendanceSystem:
         current_status = self.df.loc[self.df["Nome"] == selected_name, "Status"].values[0]
         if current_status != "Pagamento Pendente":
             self._show_feedback("✅ Você já enviou seu comprovante!", "success")
-            st.balloons()  # Animação de sucesso <button class="citation-flag" data-index="4">
+            st.balloons()  # Animação de sucesso
             return
 
         with st.form(key="upload_form"):
@@ -273,17 +274,54 @@ class AttendanceSystem:
                             self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
                             if self.data_manager.save_data(self.df):
                                 self._show_feedback("✅ Comprovante enviado com sucesso!")
-                                st.balloons()  # Animação de sucesso <button class="citation-flag" data-index="4">
+                                st.balloons()  # Animação de sucesso
                                 time.sleep(1)
                                 st.rerun()
                 else:
                     self._show_feedback("❌ Por favor, selecione um arquivo", "error")
-                    st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+                    st.snow()  # Animação de erro
+
+    def _admin_area(self):
+        """Área do Admin"""
+        if "admin_authenticated" not in st.session_state or not st.session_state.admin_authenticated:
+            password = st.text_input("Senha de Admin", type="password", key="admin_password")
+            if st.button("Entrar como Admin"):
+                if password == st.secrets["admin_credentials"]["secret"]:
+                    st.session_state.admin_authenticated = True
+                    st.success("✅ Acesso concedido!")
+                    st.balloons()  # Animação de sucesso
+                else:
+                    st.error("❌ Senha incorreta")
+                    st.snow()  # Animação de erro
+                    return
+
+        if st.session_state.get("admin_authenticated", False):
+            st.subheader("📊 Painel Admin")
+            tipo_filtro = st.selectbox("Filtrar por Tipo", ["Todos"] + list(self.df["Tipo"].unique()))
+            filtered_df = self.df if tipo_filtro == "Todos" else self.df[self.df["Tipo"] == tipo_filtro]
+
+            status_counts = filtered_df["Status"].value_counts().reset_index()
+            status_counts.columns = ["Status", "Quantidade"]
+
+            fig = px.pie(
+                status_counts,
+                names="Status",
+                values="Quantidade",
+                title="Distribuição de Status",
+                hole=0.3,
+                color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            fig.update_layout(
+                font=dict(size=14),
+                margin=dict(l=20, r=20, t=50, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     def run(self):
         """Executa o sistema principal"""
         st.sidebar.title("🎉 Abacaxi Friends")
-        menu_option = st.sidebar.radio("Menu", ["Confirmação de Presença", "Novo Cadastro"])
+        menu_option = st.sidebar.radio("Menu", ["Confirmação de Presença", "Novo Cadastro", "Área do Admin"])
 
         if menu_option == "Confirmação de Presença":
             search_term = st.text_input(
@@ -298,10 +336,13 @@ class AttendanceSystem:
                     self._attendance_confirmation(selected)
                 else:
                     self._show_feedback("⚠️ Nenhum participante encontrado", "error")
-                    st.snow()  # Animação de erro <button class="citation-flag" data-index="4">
+                    st.snow()  # Animação de erro
 
         elif menu_option == "Novo Cadastro":
             self._registration_form()
+
+        elif menu_option == "Área do Admin":
+            self._admin_area()
 
 def main():
     """Função principal"""
