@@ -281,15 +281,27 @@ class AttendanceSystem:
                 else:
                     self._show_feedback("❌ Por favor, selecione um arquivo", "error")
 
+    def _admin_dashboard(self):
+        """Painel de administração para visualização dos dados"""
+        st.subheader("📊 Painel de Administração")
+        st.dataframe(self.df)
+
     def run(self):
         """Executa o sistema principal"""
-        st.title("🎉 Abacaxi Friends")
-        tab1, tab2 = st.tabs(["Confirmação de Presença", "Novo Cadastro"])
+        st.sidebar.title("🎉 Abacaxi Friends")
+        st.sidebar.markdown(
+            """
+            <a href='#' class='menu-link' onclick="window.location.hash='confirmation';">Confirmação de Presença</a>
+            <a href='#' class='menu-link' onclick="window.location.hash='registration';">Novo Cadastro</a>
+            <a href='#' class='menu-link' onclick="window.location.hash='admin';">Painel de Administração</a>
+            """,
+            unsafe_allow_html=True
+        )
 
-        # Substituído st.experimental_get_query_params por st.query_params
         query_params = st.query_params
+        page = query_params.get("hash", "")
 
-        with tab1:
+        if page == "confirmation":
             search_term = st.text_input(
                 "Buscar participante",
                 placeholder="Digite seu nome completo",
@@ -303,8 +315,14 @@ class AttendanceSystem:
                 else:
                     self._show_feedback("⚠️ Nenhum participante encontrado", "error")
 
-        with tab2:
+        elif page == "registration":
             self._registration_form()
+
+        elif page == "admin":
+            self._admin_dashboard()
+
+        else:
+            st.info("Selecione uma opção no menu lateral.")
 
 def main():
     """Função principal"""
