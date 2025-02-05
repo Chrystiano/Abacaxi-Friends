@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import time
-import os
 import re
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# Configurações de estilo para seguir o design da Apple
+# Configurações de estilo Apple
 APPLE_COLORS = {
     "primary": "#007AFF",
     "success": "#34C759",
@@ -21,15 +21,8 @@ APPLE_COLORS = {
     "text": "#1D1D1F"
 }
 
-st.set_page_config(
-    page_title="Gestão de Presenças",
-    page_icon="✅",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
-
 def apply_apple_design():
-    """Aplica estilos CSS seguindo o design da Apple"""
+    """Aplica o design estilo Apple"""
     st.markdown(f"""
         <style>
             .stApp {{
@@ -51,25 +44,14 @@ def apply_apple_design():
                 border-radius: 10px;
                 padding: 12px;
             }}
-            .stSelectbox>div>div>div {{
-                border-radius: 10px;
-                padding: 8px;
-            }}
-            .stFileUploader>section {{
-                border: 2px dashed {APPLE_COLORS['primary']};
-                border-radius: 15px;
-                padding: 20px;
-            }}
             .success-message {{
                 color: {APPLE_COLORS['success']};
-                font-weight: 500;
                 padding: 15px;
                 border-radius: 10px;
                 background: rgba(52, 199, 89, 0.1);
             }}
             .error-message {{
                 color: {APPLE_COLORS['danger']};
-                font-weight: 500;
                 padding: 15px;
                 border-radius: 10px;
                 background: rgba(255, 59, 48, 0.1);
@@ -146,24 +128,18 @@ class FileHandler:
         self.upload_dir = Path("uploads")
         self.upload_dir.mkdir(exist_ok=True)
 
-    def _validate_file(self, file) -> bool:
-        """Valida o arquivo antes do upload"""
-        if file.size > 2 * 1024 * 1024:
-            st.error("Arquivo excede 2MB. Por favor, envie um arquivo menor.")
-            return False
-        return True
-
     def upload_file(self, uploaded_file, name: str) -> Optional[str]:
         """Processa e faz upload do arquivo"""
-        if not self._validate_file(uploaded_file):
+        if uploaded_file.size > 2 * 1024 * 1024:
+            st.error("Arquivo excede 2MB. Por favor, envie um arquivo menor.")
             return None
 
-        timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
-        file_ext = Path(uploaded_file.name).suffix
-        filename = f"{timestamp}_{name}{file_ext}"
-        file_path = self.upload_dir / filename
-
         try:
+            timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
+            file_ext = Path(uploaded_file.name).suffix
+            filename = f"{timestamp}_{name}{file_ext}"
+            file_path = self.upload_dir / filename
+
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
@@ -190,25 +166,64 @@ class AttendanceSystem:
         self.file_handler = FileHandler(config)
         self.df = self.data_manager.load_data(config.sheet_id)
         apply_apple_design()
+        self._inject_phone_mask_script()
 
-    def _format_phone_input(self):
-        """Formata o número de celular durante a digitação"""
-        if 'phone_input' in st.session_state:
-            current_value = st.session_state.phone_input
-            digits = re.sub(r'\D', '', current_value)
-            
-            # Aplica a máscara (XX) XXXXX-XXXX
-            formatted = ''
-            for i, char in enumerate(digits[:11]):
-                if i == 0:
-                    formatted += '('
-                if i == 2:
-                    formatted += ') '
-                if i == 7:
-                    formatted += '-'
-                formatted += char
-            
-            st.session_state.phone_input = formatted
+    def _inject_phone_mask_script(self):
+        """Injeta JavaScript para máscara de telefone"""
+        st.components.v1.html("""
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                const inputs = document.querySelectorAll('input[data-testid="stTextInput"]');
+                inputs.forEach(input => {
+                    if(input.placeholder.includes('XX)')) {
+                        input.addEventListener('input', function(e) {
+                            let value = e.target.value.replace(/\D/g, '');
+                            if (value.length > 11) value = value.substring(0, 11);
+                            let formatted = value.replace(/^(\d{2})(\d{5})(\d{4})$/, "($1) $2-$3");
+                            e.target.value = formatted;
+                        });
+                    }
+                });
+            });
+            </script>
+        """, height=0)
+
+    def show_pineapples(self):
+        """Animação personalizada de abacaxis"""
+        st.markdown("""
+            <style>
+                @keyframes rise {
+                    0% { 
+                        transform: translateY(0) rotate(0deg);
+                        opacity: 1;
+                    }
+                    100% { 
+                        transform: translateY(-100vh) rotate(360deg);
+                        opacity: 0;
+                    }
+                }
+                
+                .pineapple {
+                    position: fixed;
+                    bottom: -50px;
+                    font-size: 2rem;
+                    animation: rise 3s linear forwards;
+                    z-index: 9999;
+                    pointer-events: none;
+                }
+            </style>
+        """, unsafe_allow_html=True)
+        
+        pineapple_html = "".join(
+            f'<div class="pineapple" style="left: {i*7}%; animation-delay: {i*0.2}s;">🍍</div>'
+            for i in range(15)
+        )
+        st.components.v1.html(pineapple_html, height=0)
+
+    def _show_feedback(self, message: str, type: str = "success"):
+        """Exibe mensagens de feedback estilizadas"""
+        css_class = "success-message" if type == "success" else "error-message"
+        st.markdown(f'<div class="{css_class}">{message}</div>', unsafe_allow_html=True)
 
     def _clear_registration_form(self):
         """Limpa o formulário de cadastro"""
@@ -217,43 +232,12 @@ class AttendanceSystem:
             if key in st.session_state:
                 del st.session_state[key]
 
-    def _attendance_confirmation(self, selected_name: str):
-        """Gerencia a confirmação de presença"""
-        current_status = self.df.loc[self.df["Nome"] == selected_name, "Status"].values[0]
-        
-        if current_status != "Pagamento Pendente":
-            self._show_feedback("✅ Você já enviou seu comprovante!", "success")
-            return
-
-        with st.form(key="upload_form"):
-            uploaded_file = st.file_uploader(
-                "📤 Envie seu comprovante (PDF, PNG, JPG, CSV)",
-                type=["pdf", "png", "jpg", "csv"],
-                help="Tamanho máximo: 2MB",
-                key="file_uploader"
-            )
-            
-            if st.form_submit_button("Enviar Comprovante", use_container_width=True):
-                if uploaded_file:
-                    with st.spinner("Processando..."):
-                        filename = self.file_handler.upload_file(uploaded_file, selected_name)
-                        if filename:
-                            self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
-                            if self.data_manager.save_data(self.df):
-                                # Limpa o uploader e busca
-                                st.session_state.uploaded_file = None
-                                if 'search_input' in st.session_state:
-                                    del st.session_state.search_input
-                                self._show_feedback("✅ Comprovante enviado com sucesso!")
-                                time.sleep(1)
-                                st.rerun()
-                else:
-                    self._show_feedback("❌ Por favor, selecione um arquivo", "error")
-
     def _registration_form(self):
         """Formulário de cadastro de novos participantes"""
         with st.form(key="registration_form"):
+            st.subheader("🍍 Novo Cadastro")
             cols = st.columns([2, 1])
+            
             name = cols[0].text_input(
                 "Nome Completo *",
                 key="name_input",
@@ -263,9 +247,7 @@ class AttendanceSystem:
             phone = cols[1].text_input(
                 "Celular *", 
                 key="phone_input",
-                placeholder="(XX) XXXXX-XXXX",
-                on_change=self._format_phone_input,
-                help="Formato: (XX) XXXXX-XXXX"
+                placeholder="(XX) XXXXX-XXXX"
             )
             
             st.selectbox(
@@ -276,11 +258,12 @@ class AttendanceSystem:
             )
             
             if st.form_submit_button("Cadastrar", use_container_width=True):
-                if not all([name, phone]):
+                phone_digits = re.sub(r'\D', '', phone)
+                
+                if not all([name, phone_digits]):
                     self._show_feedback("❌ Preencha todos os campos obrigatórios", "error")
                     return
                 
-                phone_digits = re.sub(r'\D', '', phone)
                 if len(phone_digits) != 11:
                     self._show_feedback("❌ Número de celular inválido", "error")
                     return
@@ -297,24 +280,54 @@ class AttendanceSystem:
                 ]], columns=self.df.columns)
                 
                 self.df = pd.concat([self.df, new_entry], ignore_index=True)
+                
                 if self.data_manager.save_data(self.df):
                     self._show_feedback("✅ Cadastro realizado com sucesso!")
                     self._clear_registration_form()
-                    st.balloons()
+                    self.show_pineapples()
                     time.sleep(1)
                     st.rerun()
 
+    def _attendance_confirmation(self, selected_name: str):
+        """Gerencia a confirmação de presença"""
+        current_status = self.df.loc[self.df["Nome"] == selected_name, "Status"].values[0]
+        
+        if current_status != "Pagamento Pendente":
+            self._show_feedback("✅ Você já enviou seu comprovante!", "success")
+            return
+
+        with st.form(key="upload_form"):
+            st.subheader("📤 Envio de Comprovante")
+            uploaded_file = st.file_uploader(
+                "Selecione seu comprovante",
+                type=["pdf", "png", "jpg", "csv"],
+                help="Tamanho máximo: 2MB"
+            )
+            
+            if st.form_submit_button("Confirmar Presença", use_container_width=True):
+                if uploaded_file:
+                    with st.spinner("Processando..."):
+                        filename = self.file_handler.upload_file(uploaded_file, selected_name)
+                        if filename:
+                            self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
+                            if self.data_manager.save_data(self.df):
+                                self._show_feedback("✅ Comprovante enviado com sucesso!")
+                                self.show_pineapples()
+                                time.sleep(1)
+                                st.rerun()
+                else:
+                    self._show_feedback("❌ Por favor, selecione um arquivo", "error")
+
     def run(self):
         """Executa o sistema principal"""
-        st.title("🎉 Gestão de Eventos")
-        tab1, tab2 = st.tabs(["Confirmação de Presença", "Cadastro de Participantes"])
+        st.title("🎉 Abacaxi Friends")
+        tab1, tab2 = st.tabs(["Confirmação de Presença", "Novo Cadastro"])
 
         with tab1:
-            st.subheader("Confirme sua Presença")
             search_term = st.text_input(
-                "Buscar por nome",
-                key="search_input",
-                placeholder="Digite seu nome para buscar"
+                "Buscar participante",
+                placeholder="Digite seu nome completo",
+                key="search_input"
             ).strip()
             
             if search_term:
@@ -326,7 +339,6 @@ class AttendanceSystem:
                     self._show_feedback("⚠️ Nenhum participante encontrado", "error")
 
         with tab2:
-            st.subheader("Novo Cadastro")
             self._registration_form()
 
 def main():
