@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import time
 import re
 from pathlib import Path
 from datetime import datetime
@@ -25,44 +24,26 @@ def apply_apple_design():
     st.markdown(
         f"""
         <style>
-            body {{
-                background-color: {APPLE_COLORS['background']};
-                color: {APPLE_COLORS['text']};
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            }}
-            .stButton>button {{
-                background-color: {APPLE_COLORS['primary']};
-                color: white;
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-size: 16px;
-                border: none;
-                transition: all 0.3s ease;
-            }}
-            .stButton>button:hover {{
-                background-color: #005bb5;
-            }}
-            .success-message {{
-                color: {APPLE_COLORS['success']};
-                font-weight: bold;
-                margin-top: 10px;
-            }}
-            .error-message {{
-                color: {APPLE_COLORS['danger']};
-                font-weight: bold;
-                margin-top: 10px;
-            }}
-            .menu-link {{
-                color: {APPLE_COLORS['primary']};
-                text-decoration: none;
-                font-size: 18px;
-                margin: 10px 0;
-                display: block;
-                transition: color 0.3s ease;
-            }}
-            .menu-link:hover {{
-                color: #005bb5;
-            }}
+        body {{
+            background-color: {APPLE_COLORS['background']};
+            color: {APPLE_COLORS['text']};
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }}
+        .stButton>button {{
+            background-color: {APPLE_COLORS['primary']};
+            color: white;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 16px;
+        }}
+        .success-message {{
+            color: {APPLE_COLORS['success']};
+            font-weight: bold;
+        }}
+        .error-message {{
+            color: {APPLE_COLORS['danger']};
+            font-weight: bold;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -95,10 +76,10 @@ class DataManager:
         self.service = GoogleServices(config)
 
     @st.cache_data(ttl=300, show_spinner="Carregando dados...")
-    def load_data(_self, sheet_id: str) -> pd.DataFrame:
+    def load_data(self, sheet_id: str) -> pd.DataFrame:
         """Carrega dados da planilha Google"""
         try:
-            result = _self.service.sheets.spreadsheets().values().get(
+            result = self.service.sheets.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
                 range="A:D"
             ).execute()
@@ -106,7 +87,7 @@ class DataManager:
             if not values:
                 return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
             df = pd.DataFrame(values[1:], columns=values[0])
-            df["Celular"] = df["Celular"].apply(lambda x: re.sub(r'\D', '', x))
+            df["Celular"] = df["Celular"].apply(lambda x: re.sub(r'\D', '', str(x)))
             return df
         except Exception as e:
             st.error("Erro ao carregar dados. Tente novamente.")
@@ -171,29 +152,10 @@ class AttendanceSystem:
         self.df = self.data_manager.load_data(config.sheet_id)
         apply_apple_design()
 
-    def _inject_phone_mask_script(self):
-        """Injeta JavaScript para máscara de telefone"""
-        st.components.v1.html("""
-        <script>
-            document.addEventListener("DOMContentLoaded", function() {
-                const inputs = document.querySelectorAll("input[type=text]");
-                inputs.forEach(input => {
-                    input.addEventListener("input", function() {
-                        let value = this.value.replace(/\D/g, "");
-                        if (value.length > 11) value = value.slice(0, 11);
-                        if (value.length > 2) value = `(${value.slice(0, 2)}) ${value.slice(2)}`;
-                        if (value.length > 10) value = `${value.slice(0, 10)}-${value.slice(10)}`;
-                        this.value = value;
-                    });
-                });
-            });
-        </script>
-        """, height=0)
-
     def _show_feedback(self, message: str, type: str = "success"):
         """Exibe mensagens de feedback estilizadas"""
         css_class = "success-message" if type == "success" else "error-message"
-        st.markdown(f'<div class="{css_class}">{message}</div>', unsafe_allow_html=True)
+        st.markdown(f'<p class="{css_class}">{message}</p>', unsafe_allow_html=True)
 
     def _clear_registration_form(self):
         """Limpa o formulário de cadastro"""
@@ -210,12 +172,14 @@ class AttendanceSystem:
             name = cols[0].text_input(
                 "Nome Completo *",
                 key="name_input",
-                placeholder="Digite o nome completo"
+                placeholder="Digite o nome completo",
+                help="Apenas letras são permitidas."
             )
             phone = cols[1].text_input(
                 "Celular *", 
                 key="phone_input",
-                placeholder="(XX) XXXXX-XXXX"
+                placeholder="(XX) XXXXX-XXXX",
+                help="Apenas números são permitidos."
             )
             participant_type = st.selectbox(
                 "Tipo de Participante *",
@@ -226,17 +190,19 @@ class AttendanceSystem:
             submit_button = st.form_submit_button("Cadastrar", use_container_width=True)
 
             if submit_button:
-                phone_digits = re.sub(r'\D', '', phone)
-                if not all([name, phone_digits]):
-                    self._show_feedback("❌ Preencha todos os campos obrigatórios", "error")
+                # Validação
+                if not re.match(r'^[a-zA-Z\s]+$', name):
+                    self._show_feedback("❌ Nome inválido. Apenas letras são permitidas.", "error")
                     return
+                phone_digits = re.sub(r'\D', '', phone)
                 if len(phone_digits) != 11:
-                    self._show_feedback("❌ Número de celular inválido", "error")
+                    self._show_feedback("❌ Número de celular inválido.", "error")
                     return
                 if name.lower() in self.df["Nome"].str.lower().values:
-                    self._show_feedback("❌ Nome já cadastrado", "error")
+                    self._show_feedback("❌ Nome já cadastrado.", "error")
                     return
 
+                # Salvar novo participante
                 new_entry = pd.DataFrame([[
                     name.strip(),
                     phone_digits,
@@ -247,7 +213,7 @@ class AttendanceSystem:
                 if self.data_manager.save_data(self.df):
                     self._show_feedback("✅ Cadastro realizado com sucesso!")
                     self._clear_registration_form()
-                    st.balloons()  # Animação de sucesso
+                    st.balloons()
                     time.sleep(1)
                     st.rerun()
 
@@ -275,11 +241,11 @@ class AttendanceSystem:
                             self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
                             if self.data_manager.save_data(self.df):
                                 self._show_feedback("✅ Comprovante enviado com sucesso!")
-                                st.balloons()  # Animação de sucesso
+                                st.balloons()
                                 time.sleep(1)
                                 st.rerun()
                 else:
-                    self._show_feedback("❌ Por favor, selecione um arquivo", "error")
+                    self._show_feedback("❌ Por favor, selecione um arquivo.", "error")
 
     def _admin_dashboard(self):
         """Painel de administração para visualização dos dados"""
@@ -289,19 +255,9 @@ class AttendanceSystem:
     def run(self):
         """Executa o sistema principal"""
         st.sidebar.title("🎉 Abacaxi Friends")
-        st.sidebar.markdown(
-            """
-            <a href='#' class='menu-link' onclick="window.location.hash='confirmation';">Confirmação de Presença</a>
-            <a href='#' class='menu-link' onclick="window.location.hash='registration';">Novo Cadastro</a>
-            <a href='#' class='menu-link' onclick="window.location.hash='admin';">Painel de Administração</a>
-            """,
-            unsafe_allow_html=True
-        )
+        menu = st.sidebar.radio("Menu", ["Confirmação de Presença", "Novo Cadastro", "Painel de Administração"])
 
-        query_params = st.query_params
-        page = query_params.get("hash", "")
-
-        if page == "confirmation":
+        if menu == "Confirmação de Presença":
             search_term = st.text_input(
                 "Buscar participante",
                 placeholder="Digite seu nome completo",
@@ -313,16 +269,11 @@ class AttendanceSystem:
                     selected = st.selectbox("Selecione seu nome", results["Nome"])
                     self._attendance_confirmation(selected)
                 else:
-                    self._show_feedback("⚠️ Nenhum participante encontrado", "error")
-
-        elif page == "registration":
+                    self._show_feedback("⚠️ Nenhum participante encontrado.", "error")
+        elif menu == "Novo Cadastro":
             self._registration_form()
-
-        elif page == "admin":
+        elif menu == "Painel de Administração":
             self._admin_dashboard()
-
-        else:
-            st.info("Selecione uma opção no menu lateral.")
 
 def main():
     """Função principal"""
