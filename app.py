@@ -54,10 +54,14 @@ class DataManager:
         self.services = services
         self.sheet_id = services.config.sheet_id
 
+    @st.cache_data(ttl=600)
     def load_data(self) -> pd.DataFrame:
         """Load data from Google Sheets."""
-        @st.cache_data(ttl=600)
-        def _fetch_sheet_data(_sheet_id: str, _service: Any) -> pd.DataFrame:
+        try:
+            result = self.services.sheets.spreadsheets().values().get(
+                spreadsheetId=self.sheet_id,
+                range="A:D"
+            ).execute()
             try:
                 result = _service.spreadsheets().values().get(
                     spreadsheetId=_sheet_id,
@@ -152,6 +156,8 @@ class AttendanceUI:
     def refresh_data(self):
         """Refresh data and clear cache."""
         st.cache_data.clear()
+        if 'df' in st.session_state:
+            del st.session_state.df
         st.session_state.df = self.data_manager.load_data()
 
     def clear_upload_form(self):
@@ -224,11 +230,16 @@ class AttendanceUI:
         )
 
         with st.form(key="cadastro_form"):
-            nome = st.text_input("🆕 Nome Completo", "").strip()
+            nome = st.text_input(
+                "🆕 Nome Completo",
+                key="nome_input",
+                value=st.session_state.get('nome_input', '')
+            ).strip()
             
             celular = st.text_input(
                 "📞 Número de Celular", 
-                value="",
+                key="celular_input",
+                value=st.session_state.get('celular_input', ''),
                 help="Formato: (XX) XXXXX-XXXX"
             ).strip()
             
@@ -250,7 +261,10 @@ class AttendanceUI:
 
             if st.session_state.df["Nome"].str.lower().str.strip().eq(nome.lower()).any():
                 st.error("❌ Já existe um cadastro com esse nome.")
-                st.form_submit_button("📌 Cadastrar", disabled=True)
+                # Clear form fields
+                st.session_state.nome_input = ""
+                st.session_state.celular_input = ""
+                st.rerun()
                 return
 
             novo_registro = pd.DataFrame(
@@ -262,6 +276,14 @@ class AttendanceUI:
             if self.data_manager.save_data(st.session_state.df):
                 st.success("✅ Cadastro realizado com sucesso!")
                 st.balloons()
+                
+                # Clear form fields
+                if 'cadastro_form' in st.session_state:
+                    del st.session_state.cadastro_form
+                
+                # Force a rerun after a short delay
+                time.sleep(1)
+                st.cache_data.clear()
                 st.rerun()
 
 def main():
