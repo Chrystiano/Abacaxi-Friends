@@ -110,7 +110,6 @@ class DataManager:
             return df
         except Exception as e:
             st.error("Erro ao carregar dados. Tente novamente.")
-            st.snow()  # Animação de erro
             return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
 
     def save_data(self, df: pd.DataFrame) -> bool:
@@ -127,7 +126,6 @@ class DataManager:
             return True
         except Exception as e:
             st.error(f"Erro ao salvar dados: {str(e)}")
-            st.snow()  # Animação de erro
             return False
 
 class FileHandler:
@@ -142,7 +140,6 @@ class FileHandler:
         """Processa e faz upload do arquivo"""
         if uploaded_file.size > 2 * 1024 * 1024:
             st.error("Arquivo excede 2MB. Por favor, envie um arquivo menor.")
-            st.snow()  # Animação de erro
             return None
         try:
             timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
@@ -164,7 +161,6 @@ class FileHandler:
             return filename
         except Exception as e:
             st.error(f"Erro no upload: {str(e)}")
-            st.snow()  # Animação de erro
             return None
 
 class AttendanceSystem:
@@ -287,7 +283,7 @@ class AttendanceSystem:
 
     def run(self):
         """Executa o sistema principal"""
-        st.sidebar.title("🎉 Abacaxi Friends")
+        st.title("🎉 Abacaxi Friends")
         st.sidebar.markdown(
             """
             <a href='#' class='menu-link' onclick="window.location.hash='confirmation';">Confirmação de Presença</a>
