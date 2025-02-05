@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import time
 import re
-import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -23,41 +22,50 @@ APPLE_COLORS = {
 
 def apply_apple_design():
     """Aplica o design estilo Apple"""
-    st.markdown(f"""
+    st.markdown(
+        f"""
         <style>
-            .stApp {{
+            body {{
                 background-color: {APPLE_COLORS['background']};
+                color: {APPLE_COLORS['text']};
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             }}
             .stButton>button {{
                 background-color: {APPLE_COLORS['primary']};
                 color: white;
-                border-radius: 20px;
-                padding: 10px 24px;
-                font-weight: 500;
-                transition: all 0.3s;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 16px;
+                border: none;
+                transition: all 0.3s ease;
             }}
             .stButton>button:hover {{
-                opacity: 0.9;
-                transform: scale(1.05);
-            }}
-            .stTextInput>div>div>input {{
-                border-radius: 10px;
-                padding: 12px;
+                background-color: #005bb5;
             }}
             .success-message {{
                 color: {APPLE_COLORS['success']};
-                padding: 15px;
-                border-radius: 10px;
-                background: rgba(52, 199, 89, 0.1);
+                font-weight: bold;
+                margin-top: 10px;
             }}
             .error-message {{
                 color: {APPLE_COLORS['danger']};
-                padding: 15px;
-                border-radius: 10px;
-                background: rgba(255, 59, 48, 0.1);
+                font-weight: bold;
+                margin-top: 10px;
+            }}
+            .stTextInput>div>div>input {{
+                border-radius: 8px;
+                padding: 10px;
+                border: 1px solid {APPLE_COLORS['primary']};
+            }}
+            .stSelectbox>div>div {{
+                border-radius: 8px;
+                padding: 10px;
+                border: 1px solid {APPLE_COLORS['primary']};
             }}
         </style>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
 
 @dataclass
 class GoogleConfig:
@@ -69,13 +77,14 @@ class GoogleConfig:
 class GoogleServices:
     """Gerencia conexões com APIs do Google"""
     _instances = {}
-    
+
     def __new__(cls, config: GoogleConfig):
         if cls not in cls._instances:
-            cls._instances[cls] = super().__new__(cls)
+            instance = super().__new__(cls)
             creds = service_account.Credentials.from_service_account_info(config.credentials)
-            cls._instances[cls].sheets = build('sheets', 'v4', credentials=creds)
-            cls._instances[cls].drive = build('drive', 'v3', credentials=creds)
+            instance.sheets = build('sheets', 'v4', credentials=creds)
+            instance.drive = build('drive', 'v3', credentials=creds)
+            cls._instances[cls] = instance
         return cls._instances[cls]
 
 class DataManager:
@@ -83,20 +92,18 @@ class DataManager:
     def __init__(self, config: GoogleConfig):
         self.config = config
         self.service = GoogleServices(config)
-        
+
     @st.cache_data(ttl=300, show_spinner="Carregando dados...")
-    def load_data(_self, sheet_id: str) -> pd.DataFrame:
+    def load_data(self, sheet_id: str) -> pd.DataFrame:
         """Carrega dados da planilha Google"""
         try:
-            result = _self.service.sheets.spreadsheets().values().get(
+            result = self.service.sheets.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
                 range="A:D"
             ).execute()
-            
             values = result.get('values', [])
             if not values:
                 return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
-            
             df = pd.DataFrame(values[1:], columns=values[0])
             df["Celular"] = df["Celular"].apply(lambda x: re.sub(r'\D', '', x))
             return df
@@ -133,16 +140,13 @@ class FileHandler:
         if uploaded_file.size > 2 * 1024 * 1024:
             st.error("Arquivo excede 2MB. Por favor, envie um arquivo menor.")
             return None
-
         try:
             timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
             file_ext = Path(uploaded_file.name).suffix
             filename = f"{timestamp}_{name}{file_ext}"
             file_path = self.upload_dir / filename
-
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-            
             file_metadata = {
                 'name': filename,
                 'parents': [self.config.folder_id]
@@ -153,7 +157,6 @@ class FileHandler:
                 media_body=media,
                 fields='id'
             ).execute()
-            
             return filename
         except Exception as e:
             st.error(f"Erro no upload: {str(e)}")
@@ -166,59 +169,25 @@ class AttendanceSystem:
         self.file_handler = FileHandler(config)
         self.df = self.data_manager.load_data(config.sheet_id)
         apply_apple_design()
-        self._inject_phone_mask_script()
 
     def _inject_phone_mask_script(self):
         """Injeta JavaScript para máscara de telefone"""
         st.components.v1.html("""
-            <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                const inputs = document.querySelectorAll('input[data-testid="stTextInput"]');
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const inputs = document.querySelectorAll("input[type=text]");
                 inputs.forEach(input => {
-                    if(input.placeholder.includes('XX)')) {
-                        input.addEventListener('input', function(e) {
-                            let value = e.target.value.replace(/\D/g, '');
-                            if (value.length > 11) value = value.substring(0, 11);
-                            let formatted = value.replace(/^(\d{2})(\d{5})(\d{4})$/, "($1) $2-$3");
-                            e.target.value = formatted;
-                        });
-                    }
+                    input.addEventListener("input", function() {
+                        let value = this.value.replace(/\D/g, "");
+                        if (value.length > 11) value = value.slice(0, 11);
+                        if (value.length > 2) value = `(${value.slice(0, 2)}) ${value.slice(2)}`;
+                        if (value.length > 10) value = `${value.slice(0, 10)}-${value.slice(10)}`;
+                        this.value = value;
+                    });
                 });
             });
-            </script>
+        </script>
         """, height=0)
-
-    def show_pineapples(self):
-        """Animação personalizada de abacaxis"""
-        st.markdown("""
-            <style>
-                @keyframes rise {
-                    0% { 
-                        transform: translateY(0) rotate(0deg);
-                        opacity: 1;
-                    }
-                    100% { 
-                        transform: translateY(-100vh) rotate(360deg);
-                        opacity: 0;
-                    }
-                }
-                
-                .pineapple {
-                    position: fixed;
-                    bottom: -50px;
-                    font-size: 2rem;
-                    animation: rise 3s linear forwards;
-                    z-index: 9999;
-                    pointer-events: none;
-                }
-            </style>
-        """, unsafe_allow_html=True)
-        
-        pineapple_html = "".join(
-            f'<div class="pineapple" style="left: {i*7}%; animation-delay: {i*0.2}s;">🍍</div>'
-            for i in range(15)
-        )
-        st.components.v1.html(pineapple_html, height=0)
 
     def _show_feedback(self, message: str, type: str = "success"):
         """Exibe mensagens de feedback estilizadas"""
@@ -237,61 +206,53 @@ class AttendanceSystem:
         with st.form(key="registration_form"):
             st.subheader("🍍 Novo Cadastro")
             cols = st.columns([2, 1])
-            
             name = cols[0].text_input(
                 "Nome Completo *",
                 key="name_input",
                 placeholder="Digite o nome completo"
             )
-            
             phone = cols[1].text_input(
                 "Celular *", 
                 key="phone_input",
                 placeholder="(XX) XXXXX-XXXX"
             )
-            
-            st.selectbox(
+            participant_type = st.selectbox(
                 "Tipo de Participante *",
                 ["Membro", "Convidado"],
                 key="type_input",
                 index=0
             )
-            
-            if st.form_submit_button("Cadastrar", use_container_width=True):
+            submit_button = st.form_submit_button("Cadastrar", use_container_width=True)
+
+            if submit_button:
                 phone_digits = re.sub(r'\D', '', phone)
-                
                 if not all([name, phone_digits]):
                     self._show_feedback("❌ Preencha todos os campos obrigatórios", "error")
                     return
-                
                 if len(phone_digits) != 11:
                     self._show_feedback("❌ Número de celular inválido", "error")
                     return
-                
                 if name.lower() in self.df["Nome"].str.lower().values:
                     self._show_feedback("❌ Nome já cadastrado", "error")
                     return
-                
+
                 new_entry = pd.DataFrame([[
                     name.strip(),
                     phone_digits,
-                    st.session_state.type_input,
+                    participant_type,
                     "Pagamento Pendente"
                 ]], columns=self.df.columns)
-                
                 self.df = pd.concat([self.df, new_entry], ignore_index=True)
-                
                 if self.data_manager.save_data(self.df):
                     self._show_feedback("✅ Cadastro realizado com sucesso!")
                     self._clear_registration_form()
-                    self.show_pineapples()
+                    st.balloons()
                     time.sleep(1)
                     st.rerun()
 
     def _attendance_confirmation(self, selected_name: str):
         """Gerencia a confirmação de presença"""
         current_status = self.df.loc[self.df["Nome"] == selected_name, "Status"].values[0]
-        
         if current_status != "Pagamento Pendente":
             self._show_feedback("✅ Você já enviou seu comprovante!", "success")
             return
@@ -303,8 +264,9 @@ class AttendanceSystem:
                 type=["pdf", "png", "jpg", "csv"],
                 help="Tamanho máximo: 2MB"
             )
-            
-            if st.form_submit_button("Confirmar Presença", use_container_width=True):
+            submit_button = st.form_submit_button("Confirmar Presença", use_container_width=True)
+
+            if submit_button:
                 if uploaded_file:
                     with st.spinner("Processando..."):
                         filename = self.file_handler.upload_file(uploaded_file, selected_name)
@@ -312,7 +274,7 @@ class AttendanceSystem:
                             self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
                             if self.data_manager.save_data(self.df):
                                 self._show_feedback("✅ Comprovante enviado com sucesso!")
-                                self.show_pineapples()
+                                st.balloons()
                                 time.sleep(1)
                                 st.rerun()
                 else:
@@ -326,10 +288,9 @@ class AttendanceSystem:
         with tab1:
             search_term = st.text_input(
                 "Buscar participante",
-                placeholder="Digite seu nome completo",
+                placeholder="Digite seu nome",
                 key="search_input"
             ).strip()
-            
             if search_term:
                 results = self.df[self.df["Nome"].str.contains(search_term, case=False)]
                 if not results.empty:
@@ -348,7 +309,6 @@ def main():
         folder_id=st.secrets["gdrive"]["GDRIVE_FOLDER_ID"],
         credentials=st.secrets["gdrive_credentials"]
     )
-    
     system = AttendanceSystem(config)
     system.run()
 
