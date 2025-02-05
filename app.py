@@ -191,10 +191,31 @@ class AttendanceSystem:
         self.df = self.data_manager.load_data(config.sheet_id)
         apply_apple_design()
 
-    def _show_feedback(self, message: str, type: str = "success"):
-        """Exibe mensagens de feedback estilizadas"""
-        css_class = "success-message" if type == "success" else "error-message"
-        st.markdown(f'<div class="{css_class}">{message}</div>', unsafe_allow_html=True)
+    def _format_phone_input(self):
+        """Formata o número de celular durante a digitação"""
+        if 'phone_input' in st.session_state:
+            current_value = st.session_state.phone_input
+            digits = re.sub(r'\D', '', current_value)
+            
+            # Aplica a máscara (XX) XXXXX-XXXX
+            formatted = ''
+            for i, char in enumerate(digits[:11]):
+                if i == 0:
+                    formatted += '('
+                if i == 2:
+                    formatted += ') '
+                if i == 7:
+                    formatted += '-'
+                formatted += char
+            
+            st.session_state.phone_input = formatted
+
+    def _clear_registration_form(self):
+        """Limpa o formulário de cadastro"""
+        keys_to_clear = ['name_input', 'phone_input', 'type_input']
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
 
     def _attendance_confirmation(self, selected_name: str):
         """Gerencia a confirmação de presença"""
@@ -208,7 +229,8 @@ class AttendanceSystem:
             uploaded_file = st.file_uploader(
                 "📤 Envie seu comprovante (PDF, PNG, JPG, CSV)",
                 type=["pdf", "png", "jpg", "csv"],
-                help="Tamanho máximo: 2MB"
+                help="Tamanho máximo: 2MB",
+                key="file_uploader"
             )
             
             if st.form_submit_button("Enviar Comprovante", use_container_width=True):
@@ -218,6 +240,10 @@ class AttendanceSystem:
                         if filename:
                             self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
                             if self.data_manager.save_data(self.df):
+                                # Limpa o uploader e busca
+                                st.session_state.uploaded_file = None
+                                if 'search_input' in st.session_state:
+                                    del st.session_state.search_input
                                 self._show_feedback("✅ Comprovante enviado com sucesso!")
                                 time.sleep(1)
                                 st.rerun()
@@ -228,17 +254,34 @@ class AttendanceSystem:
         """Formulário de cadastro de novos participantes"""
         with st.form(key="registration_form"):
             cols = st.columns([2, 1])
-            name = cols[0].text_input("Nome Completo", key="name_input")
-            phone = cols[1].text_input("Celular", help="Formato: (XX) XXXXX-XXXX")
+            name = cols[0].text_input(
+                "Nome Completo *",
+                key="name_input",
+                placeholder="Digite o nome completo"
+            )
             
-            st.selectbox("Tipo de Participante", ["Membro", "Convidado"], key="type_input")
+            phone = cols[1].text_input(
+                "Celular *", 
+                key="phone_input",
+                placeholder="(XX) XXXXX-XXXX",
+                on_change=self._format_phone_input,
+                help="Formato: (XX) XXXXX-XXXX"
+            )
+            
+            st.selectbox(
+                "Tipo de Participante *",
+                ["Membro", "Convidado"],
+                key="type_input",
+                index=0
+            )
             
             if st.form_submit_button("Cadastrar", use_container_width=True):
                 if not all([name, phone]):
                     self._show_feedback("❌ Preencha todos os campos obrigatórios", "error")
                     return
                 
-                if not re.match(r'^\d{11}$', re.sub(r'\D', '', phone)):
+                phone_digits = re.sub(r'\D', '', phone)
+                if len(phone_digits) != 11:
                     self._show_feedback("❌ Número de celular inválido", "error")
                     return
                 
@@ -248,7 +291,7 @@ class AttendanceSystem:
                 
                 new_entry = pd.DataFrame([[
                     name.strip(),
-                    re.sub(r'\D', '', phone),
+                    phone_digits,
                     st.session_state.type_input,
                     "Pagamento Pendente"
                 ]], columns=self.df.columns)
@@ -256,6 +299,7 @@ class AttendanceSystem:
                 self.df = pd.concat([self.df, new_entry], ignore_index=True)
                 if self.data_manager.save_data(self.df):
                     self._show_feedback("✅ Cadastro realizado com sucesso!")
+                    self._clear_registration_form()
                     st.balloons()
                     time.sleep(1)
                     st.rerun()
@@ -267,7 +311,11 @@ class AttendanceSystem:
 
         with tab1:
             st.subheader("Confirme sua Presença")
-            search_term = st.text_input("Buscar por nome", key="search_input").strip()
+            search_term = st.text_input(
+                "Buscar por nome",
+                key="search_input",
+                placeholder="Digite seu nome para buscar"
+            ).strip()
             
             if search_term:
                 results = self.df[self.df["Nome"].str.contains(search_term, case=False)]
