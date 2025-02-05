@@ -43,24 +43,26 @@ class DataManager:
         self.services = services
         self.sheet_id = services.config.sheet_id
 
-    @st.cache_data(ttl=600)
     def load_data(self) -> pd.DataFrame:
-        """Load data from Google Sheets with caching."""
-        try:
-            result = self.services.sheets.spreadsheets().values().get(
-                spreadsheetId=self.sheet_id,
-                range="A:D"
-            ).execute()
-            
-            values = result.get('values', [])
-            if not values:
+        """Load data from Google Sheets."""
+        @st.cache_data(ttl=600)
+        def _fetch_sheet_data(_sheet_id: str, _service: Any) -> pd.DataFrame:
+            try:
+                result = _service.spreadsheets().values().get(
+                    spreadsheetId=_sheet_id,
+                    range="A:D"
+                ).execute()
+                
+                values = result.get('values', [])
+                if not values:
+                    return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
+                
+                return pd.DataFrame(values[1:], columns=values[0])
+            except Exception as e:
+                st.error(f"Erro ao carregar os dados: {str(e)}")
                 return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
-            
-            df = pd.DataFrame(values[1:], columns=values[0])
-            return df.copy()
-        except Exception as e:
-            st.error(f"Erro ao carregar os dados: {str(e)}")
-            return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
+        
+        return _fetch_sheet_data(self.sheet_id, self.services.sheets)
 
     def save_data(self, df: pd.DataFrame) -> bool:
         """Save data to Google Sheets."""
@@ -126,17 +128,22 @@ class AttendanceUI:
     def __init__(self, data_manager: DataManager, file_handler: FileHandler):
         self.data_manager = data_manager
         self.file_handler = file_handler
-        self.setup_page()
-        self.df = self.data_manager.load_data()
-
-    @staticmethod
-    def setup_page():
-        """Configure page settings."""
         st.set_page_config(
             page_title="Gestão de Presenças",
             page_icon="✅",
             layout="centered"
         )
+        self.load_data()
+
+    def load_data(self):
+        """Load data with proper state management."""
+        if 'df' not in st.session_state:
+            st.session_state.df = self.data_manager.load_data()
+
+    def refresh_data(self):
+        """Refresh data and clear cache."""
+        st.cache_data.clear()
+        st.session_state.df = self.data_manager.load_data()
 
     def search_tab(self):
         """Render search and confirmation tab."""
@@ -149,7 +156,9 @@ class AttendanceUI:
         if not nome_busca:
             return
 
-        results = self.df[self.df["Nome"].str.contains(nome_busca, case=False, na=False)]
+        results = st.session_state.df[
+            st.session_state.df["Nome"].str.contains(nome_busca, case=False, na=False)
+        ]
         if results.empty:
             st.error("Nenhum registro encontrado. Verifique a grafia do nome.")
             return
@@ -161,7 +170,9 @@ class AttendanceUI:
 
     def handle_attendance_confirmation(self, selected_row: str):
         """Handle attendance confirmation process."""
-        status_atual = self.df[self.df["Nome"] == selected_row]["Status"].values[0]
+        status_atual = st.session_state.df[
+            st.session_state.df["Nome"] == selected_row
+        ]["Status"].values[0]
         
         if status_atual == "Pagamento Confirmado":
             st.warning("✅ Você já confirmou sua presença anteriormente.")
@@ -183,8 +194,11 @@ class AttendanceUI:
         if not self.file_handler.upload_to_drive(file_path, Path(file_path).name):
             return
 
-        self.df.loc[self.df["Nome"] == selected_row, "Status"] = "Pagamento Confirmado"
-        if self.data_manager.save_data(self.df):
+        st.session_state.df.loc[
+            st.session_state.df["Nome"] == selected_row, "Status"
+        ] = "Pagamento Confirmado"
+        
+        if self.data_manager.save_data(st.session_state.df):
             st.balloons()
             st.success("🎉 Presença confirmada com sucesso!")
 
@@ -208,21 +222,21 @@ class AttendanceUI:
                 st.error("❌ Nome e celular são obrigatórios!")
                 return
 
-            if self.df["Nome"].str.lower().str.strip().eq(nome.lower()).any():
+            if st.session_state.df["Nome"].str.lower().str.strip().eq(nome.lower()).any():
                 st.error("❌ Já existe um cadastro com esse nome.")
                 return
 
             novo_registro = pd.DataFrame(
                 [[nome, celular, tipo, "Pagamento Pendente"]],
-                columns=self.df.columns
+                columns=st.session_state.df.columns
             )
-            self.df = pd.concat([self.df, novo_registro], ignore_index=True)
+            st.session_state.df = pd.concat([st.session_state.df, novo_registro], ignore_index=True)
             
-            if self.data_manager.save_data(self.df):
+            if self.data_manager.save_data(st.session_state.df):
                 st.success("✅ Cadastro realizado com sucesso!")
                 st.balloons()
                 time.sleep(3)
-                st.cache_data.clear()
+                self.refresh_data()
                 st.experimental_rerun()
 
 def main():
