@@ -54,23 +54,27 @@ class DataManager:
         self.services = services
         self.sheet_id = services.config.sheet_id
 
-    @st.cache_data(ttl=600)
     def load_data(self) -> pd.DataFrame:
         """Load data from Google Sheets."""
-        try:
-            result = self.services.sheets.spreadsheets().values().get(
-                spreadsheetId=self.sheet_id,
-                range="A:D"
-            ).execute()
+        @st.cache_data(ttl=600)
+        def _fetch_data(_sheet_id: str, _credentials: Any) -> pd.DataFrame:
+            try:
+                service = build('sheets', 'v4', credentials=_credentials)
+                result = service.spreadsheets().values().get(
+                    spreadsheetId=_sheet_id,
+                    range="A:D"
+                ).execute()
             
             values = result.get('values', [])
             if not values:
                 return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
             
-            return pd.DataFrame(values[1:], columns=values[0])
-        except Exception as e:
-            st.error("Erro ao carregar os dados. Tente novamente.")
-            return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
+                return pd.DataFrame(values[1:], columns=values[0])
+            except Exception as e:
+                st.error("Erro ao carregar os dados. Tente novamente.")
+                return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
+        
+        return _fetch_data(self.sheet_id, self.services.creds)
             try:
                 result = _service.spreadsheets().values().get(
                     spreadsheetId=_sheet_id,
@@ -165,9 +169,12 @@ class AttendanceUI:
     def refresh_data(self):
         """Refresh data and clear cache."""
         st.cache_data.clear()
-        if 'df' in st.session_state:
+        if hasattr(st.session_state, 'df'):
             del st.session_state.df
         st.session_state.df = self.data_manager.load_data()
+        for key in list(st.session_state.keys()):
+            if key.endswith('_input'):
+                del st.session_state[key]
 
     def clear_upload_form(self):
         """Clear file upload form."""
