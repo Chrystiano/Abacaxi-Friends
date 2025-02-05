@@ -1,47 +1,77 @@
 import streamlit as st
 import pandas as pd
 import os
+import json
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# Configuração da interface baseada no design da Apple
-st.set_page_config(
-    page_title="Gestão de Presenças",
-    page_icon="✅",
-    layout="centered"
-)
+# 🔒 Carregar credenciais do Google Drive do Streamlit Secrets
+if "gdrive_credentials" in st.secrets:
+    credentials_dict = json.loads(json.dumps(st.secrets["gdrive_credentials"]))
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        credentials_dict, ["https://www.googleapis.com/auth/drive"]
+    )
+    client = gspread.authorize(creds)
+else:
+    st.error("🔴 Credenciais do Google Drive não configuradas corretamente!")
 
-# Definir caminho do CSV
-CSV_FILE = "registros.csv"
+# 🔒 Carregar os IDs do Google Sheets e da Pasta do Google Drive dos Secrets
+if "gdrive" in st.secrets:
+    GOOGLE_SHEET_ID = st.secrets["gdrive"]["GOOGLE_SHEET_ID"]
+    GDRIVE_FOLDER_ID = st.secrets["gdrive"]["GDRIVE_FOLDER_ID"]
+else:
+    st.error("🔴 IDs do Google Drive não foram configurados nos Secrets!")
 
-# Criar o CSV se não existir ou corrigir estrutura
-def verificar_e_corrigir_csv():
-    if not os.path.exists(CSV_FILE) or os.stat(CSV_FILE).st_size == 0:
-        df = pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
-        df.to_csv(CSV_FILE, index=False)
-    else:
-        df = pd.read_csv(CSV_FILE)
-        # Verificar se todas as colunas estão presentes
-        colunas_necessarias = ["Nome", "Celular", "Tipo", "Status"]
-        if not all(col in df.columns for col in colunas_necessarias):
-            st.error("🚨 O arquivo CSV está corrompido ou mal formatado. Criando um novo...")
-            df = pd.DataFrame(columns=colunas_necessarias)
-            df.to_csv(CSV_FILE, index=False)
-    return df
+# 📂 Carregar ou criar o arquivo CSV no Google Sheets
+def load_data():
+    try:
+        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
+    except Exception as e:
+        st.error(f"Erro ao carregar dados do Google Sheets: {e}")
+        return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
 
-# Carregar os registros
-df = verificar_e_corrigir_csv()
+# 💾 Salvar os dados atualizados no Google Sheets
+def save_data(df):
+    try:
+        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+        sheet.clear()
+        sheet.update([df.columns.values.tolist()] + df.values.tolist())
+    except Exception as e:
+        st.error(f"Erro ao salvar dados no Google Sheets: {e}")
 
-# Criar abas
+# 📤 Upload de arquivo para o Google Drive
+def upload_to_drive(file_path, file_name):
+    try:
+        drive_service = client.auth.service
+        file_metadata = {
+            "name": file_name,
+            "parents": [GDRIVE_FOLDER_ID]
+        }
+        media = gspread.MediaFileUpload(file_path)
+        uploaded_file = drive_service.files().create(
+            body=file_metadata, media_body=media, fields="id"
+        ).execute()
+        return uploaded_file["id"]
+    except Exception as e:
+        st.error(f"Erro ao enviar para o Google Drive: {e}")
+
+# 🔄 Carregar os dados
+df = load_data()
+
+# 🎨 Configuração da interface
+st.set_page_config(page_title="Gestão de Presenças", page_icon="✅", layout="centered")
+
+# 📑 Criar abas
 aba_consulta, aba_cadastro = st.tabs(["🔎 Consultar e Confirmar Presença", "📝 Cadastrar Nova Pessoa"])
 
 # === ABA DE CONSULTA ===
 with aba_consulta:
-    st.markdown(
-        "<h1 style='text-align: center; color: #1F618D;'>🎉 Confirmação de Presença 🎉</h1>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<h1 style='text-align: center; color: #1F618D;'>🎉 Confirmação de Presença 🎉</h1>", unsafe_allow_html=True)
 
-    nome_busca = st.text_input("🔎 Digite seu nome para buscar", "").strip()
+    nome_busca = st.text_input("🔎 Digite seu nome para buscar").strip()
 
     if nome_busca:
         results = df[df["Nome"].str.contains(nome_busca, case=False, na=False)]
@@ -58,10 +88,7 @@ with aba_consulta:
             else:
                 st.success(f"🔹 {selected_row} encontrado! Envie um arquivo para confirmar sua presença.")
 
-                uploaded_file = st.file_uploader(
-                    "📁 Envie um comprovante (CSV, PNG, JPG, PDF - máx. 2MB)",
-                    type=["csv", "png", "jpg", "pdf"]
-                )
+                uploaded_file = st.file_uploader("📁 Envie um comprovante (CSV, PNG, JPG, PDF - máx. 2MB)", type=["csv", "png", "jpg", "pdf"])
 
                 if uploaded_file:
                     if uploaded_file.size > 2 * 1024 * 1024:
@@ -76,25 +103,23 @@ with aba_consulta:
                         with open(file_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
 
-                        st.success(f"✅ Arquivo salvo como `{new_filename}`!")
+                        file_id = upload_to_drive(file_path, new_filename)
+                        st.success(f"✅ Arquivo salvo no Google Drive! ID: {file_id}")
 
                         df.loc[df["Nome"] == selected_row, "Status"] = "Pagamento Confirmado"
-                        df.to_csv(CSV_FILE, index=False)
+                        save_data(df)
 
                         st.balloons()
                         st.success("🎉 Presença confirmada com sucesso!")
 
 # === ABA DE CADASTRO ===
 with aba_cadastro:
-    st.markdown(
-        "<h1 style='text-align: center; color: #2C3E50;'>📝 Cadastrar Nova Pessoa</h1>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<h1 style='text-align: center; color: #2C3E50;'>📝 Cadastrar Nova Pessoa</h1>", unsafe_allow_html=True)
 
     with st.form(key="cadastro_form"):
-        nome = st.text_input("🆕 Nome Completo", "").strip()
-        celular = st.text_input("📞 Número de Celular", "").strip()
-        tipo = "Novo"  # Sempre cadastra como "Novo"
+        nome = st.text_input("🆕 Nome Completo").strip()
+        celular = st.text_input("📞 Número de Celular").strip()
+        tipo = "Novo"
         status = "Pagamento Pendente"
 
         cadastrar = st.form_submit_button("📌 Cadastrar")
@@ -107,6 +132,6 @@ with aba_cadastro:
             else:
                 novo_registro = pd.DataFrame([[nome, celular, tipo, status]], columns=df.columns)
                 df = pd.concat([df, novo_registro], ignore_index=True)
-                df.to_csv(CSV_FILE, index=False)
+                save_data(df)
                 st.success("✅ Cadastro realizado com sucesso!")
                 st.balloons()
