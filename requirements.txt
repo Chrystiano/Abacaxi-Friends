@@ -15,6 +15,30 @@ pathlib
 
 # Para animações e feedback visual
 streamlit-extras
+streamlit-lottie  # Para animações personalizadas com Lottie
 
 # Para validação de dados e expressões regulares
 regex
+
+# Para gráficos interativos
+plotly
+
+# Para melhor tratamento de erros e logs
+rich
+
+# Para suporte a tipos avançados em Python
+typing-extensions
+
+# Para integração com APIs HTTP
+requests
+requests-oauthlib
+
+# Para manipulação de datas e horários
+python-dateutil
+
+# Para processamento de strings e formatação
+markdown
+markdown-it-py
+
+# Para suporte a máscaras de entrada no frontend
+js-beautify  # Para injetar JavaScript limpo e funcional
