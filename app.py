@@ -251,74 +251,69 @@ class AttendanceSystem:
                     time.sleep(1)
                     st.rerun()
 
-    def _attendance_confirmation(self, selected_name: str):
+    def _attendance_confirmation(self):
         """Gerencia a confirmação de presença"""
-        current_status = self.df.loc[self.df["Nome"] == selected_name, "Status"].values[0]
-        if current_status != "Pagamento Pendente":
-            self._show_feedback("✅ Você já enviou seu comprovante!", "success")
-            return
+        st.title("🎉 Confirmação de Presença")
+        search_term = st.text_input(
+            "Buscar participante",
+            placeholder="Digite seu nome completo",
+            key="search_input"
+        ).strip()
+        if search_term:
+            results = self.df[self.df["Nome"].str.contains(search_term, case=False)]
+            if not results.empty:
+                selected = st.selectbox("Selecione seu nome", results["Nome"])
+                current_status = self.df.loc[self.df["Nome"] == selected, "Status"].values[0]
+                if current_status != "Pagamento Pendente":
+                    self._show_feedback("✅ Você já enviou seu comprovante!", "success")
+                    return
 
-        with st.form(key="upload_form"):
-            st.subheader("📤 Envio de Comprovante")
-            uploaded_file = st.file_uploader(
-                "Selecione seu comprovante",
-                type=["pdf", "png", "jpg", "csv"],
-                help="Tamanho máximo: 2MB"
-            )
-            submit_button = st.form_submit_button("Confirmar Presença", use_container_width=True)
+                with st.form(key="upload_form"):
+                    st.subheader("📤 Envio de Comprovante")
+                    uploaded_file = st.file_uploader(
+                        "Selecione seu comprovante",
+                        type=["pdf", "png", "jpg", "csv"],
+                        help="Tamanho máximo: 2MB"
+                    )
+                    submit_button = st.form_submit_button("Confirmar Presença", use_container_width=True)
 
-            if submit_button:
-                if uploaded_file:
-                    with st.spinner("Processando..."):
-                        filename = self.file_handler.upload_file(uploaded_file, selected_name)
-                        if filename:
-                            self.df.loc[self.df["Nome"] == selected_name, "Status"] = "Pagamento Em Análise"
-                            if self.data_manager.save_data(self.df):
-                                self._show_feedback("✅ Comprovante enviado com sucesso!")
-                                st.balloons()  # Animação de sucesso
-                                time.sleep(1)
-                                st.rerun()
-                else:
-                    self._show_feedback("❌ Por favor, selecione um arquivo", "error")
+                    if submit_button:
+                        if uploaded_file:
+                            with st.spinner("Processando..."):
+                                filename = self.file_handler.upload_file(uploaded_file, selected)
+                                if filename:
+                                    self.df.loc[self.df["Nome"] == selected, "Status"] = "Pagamento Em Análise"
+                                    if self.data_manager.save_data(self.df):
+                                        self._show_feedback("✅ Comprovante enviado com sucesso!")
+                                        st.balloons()  # Animação de sucesso
+                                        time.sleep(1)
+                                        st.rerun()
+                        else:
+                            self._show_feedback("❌ Por favor, selecione um arquivo", "error")
+            else:
+                self._show_feedback("⚠️ Nenhum participante encontrado", "error")
+
+    def _admin_dashboard(self):
+        """Painel de administração para visualização dos dados"""
+        st.subheader("📊 Painel de Administração")
+        st.dataframe(self.df)
 
     def run(self):
         """Executa o sistema principal"""
+        # Menu lateral
         st.sidebar.title("🎉 Abacaxi Friends")
-        st.sidebar.markdown(
-            """
-            <a href='#' class='menu-link' onclick="window.location.hash='confirmation';">Confirmação de Presença</a>
-            <a href='#' class='menu-link' onclick="window.location.hash='registration';">Novo Cadastro</a>
-            <a href='#' class='menu-link' onclick="window.location.hash='admin';">Painel de Administração</a>
-            """,
-            unsafe_allow_html=True
+        page = st.sidebar.radio(
+            "Navegue pelas opções:",
+            ["Confirmação de Presença", "Novo Cadastro", "Painel de Administração"]
         )
 
-        query_params = st.query_params
-        page = query_params.get("hash", "")
-
-        if page == "confirmation":
-            search_term = st.text_input(
-                "Buscar participante",
-                placeholder="Digite seu nome completo",
-                key="search_input"
-            ).strip()
-            if search_term:
-                results = self.df[self.df["Nome"].str.contains(search_term, case=False)]
-                if not results.empty:
-                    selected = st.selectbox("Selecione seu nome", results["Nome"])
-                    self._attendance_confirmation(selected)
-                else:
-                    self._show_feedback("⚠️ Nenhum participante encontrado", "error")
-
-        elif page == "registration":
+        # Definir a página inicial como "Confirmação de Presença"
+        if page == "Confirmação de Presença":
+            self._attendance_confirmation()
+        elif page == "Novo Cadastro":
             self._registration_form()
-
-        elif page == "admin":
-            st.subheader("📊 Painel de Administração")
-            st.dataframe(self.df)
-
-        else:
-            st.info("Selecione uma opção no menu lateral.")
+        elif page == "Painel de Administração":
+            self._admin_dashboard()
 
 def main():
     """Função principal"""
