@@ -64,16 +64,20 @@ class DataManager:
                     spreadsheetId=_sheet_id,
                     range="A:D"
                 ).execute()
+                
+                values = result.get('values', [])
+                if not values:
+                    return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
+                
+                return pd.DataFrame(values[1:], columns=values[0])
+            except Exception as e:
+                st.error("Erro ao carregar os dados. Tente novamente.")
+                return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
             
             values = result.get('values', [])
             if not values:
                 return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
             
-                return pd.DataFrame(values[1:], columns=values[0])
-            except Exception as e:
-                st.error("Erro ao carregar os dados. Tente novamente.")
-                return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
-        
         return _fetch_data(self.sheet_id, self.services.creds)
             try:
                 result = _service.spreadsheets().values().get(
