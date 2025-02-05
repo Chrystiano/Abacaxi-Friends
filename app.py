@@ -7,8 +7,8 @@ from datetime import datetime
 import os
 from typing import Optional, Tuple, Dict, Any
 from dataclasses import dataclass
-import time
 from pathlib import Path
+import re
 
 @dataclass
 class GoogleConfig:
@@ -16,6 +16,17 @@ class GoogleConfig:
     sheet_id: str
     folder_id: str
     credentials: Dict[str, Any]
+
+def format_phone(phone: str) -> str:
+    """Format phone number to store only digits."""
+    return re.sub(r'\D', '', phone)
+
+def format_phone_display(phone: str) -> str:
+    """Format phone number for display."""
+    phone = re.sub(r'\D', '', phone)
+    if len(phone) == 11:
+        return f"({phone[:2]}) {phone[2:7]}-{phone[7:]}"
+    return phone
 
 class GoogleServices:
     """Handle Google API services initialization."""
@@ -59,7 +70,7 @@ class DataManager:
                 
                 return pd.DataFrame(values[1:], columns=values[0])
             except Exception as e:
-                st.error(f"Erro ao carregar os dados: {str(e)}")
+                st.error("Erro ao carregar os dados. Tente novamente.")
                 return pd.DataFrame(columns=["Nome", "Celular", "Tipo", "Status"])
         
         return _fetch_sheet_data(self.sheet_id, self.services.sheets)
@@ -75,8 +86,8 @@ class DataManager:
                 body={'values': values}
             ).execute()
             return True
-        except Exception as e:
-            st.error(f"Erro ao salvar os dados: {str(e)}")
+        except Exception:
+            st.error("Erro ao salvar os dados. Tente novamente.")
             return False
 
 class FileHandler:
@@ -101,7 +112,6 @@ class FileHandler:
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        st.success(f"✅ Arquivo salvo como `{new_filename}`!")
         return str(file_path)
 
     def upload_to_drive(self, file_path: str, filename: str) -> bool:
@@ -112,15 +122,14 @@ class FileHandler:
                 'parents': [self.folder_id]
             }
             media = MediaFileUpload(file_path, resumable=True)
-            file = self.services.drive.files().create(
+            self.services.drive.files().create(
                 body=file_metadata,
                 media_body=media,
                 fields='id'
             ).execute()
-            st.success(f"Arquivo enviado para o Google Drive com ID: {file.get('id')}")
             return True
-        except Exception as e:
-            st.error(f"Erro ao fazer upload para o Google Drive: {str(e)}")
+        except Exception:
+            st.error("Erro ao enviar arquivo. Tente novamente.")
             return False
 
 class AttendanceUI:
@@ -144,6 +153,10 @@ class AttendanceUI:
         """Refresh data and clear cache."""
         st.cache_data.clear()
         st.session_state.df = self.data_manager.load_data()
+
+    def clear_upload_form(self):
+        """Clear file upload form."""
+        st.session_state.uploaded_file = None
 
     def search_tab(self):
         """Render search and confirmation tab."""
@@ -174,14 +187,16 @@ class AttendanceUI:
             st.session_state.df["Nome"] == selected_row
         ]["Status"].values[0]
         
-        if status_atual == "Pagamento Confirmado":
-            st.warning("✅ Você já confirmou sua presença anteriormente.")
+        if status_atual in ["Pagamento Confirmado", "Pagamento Em Análise"]:
+            st.warning("✅ Você já enviou seu comprovante.")
             return
 
         st.success(f"🔹 {selected_row} encontrado! Envie um arquivo para confirmar sua presença.")
+        
         uploaded_file = st.file_uploader(
             "📁 Envie um comprovante (CSV, PNG, JPG, PDF - máx. 2MB)",
-            type=["csv", "png", "jpg", "pdf"]
+            type=["csv", "png", "jpg", "pdf"],
+            key="proof_upload"
         )
 
         if not uploaded_file:
@@ -191,16 +206,15 @@ class AttendanceUI:
         if not file_path:
             return
 
-        if not self.file_handler.upload_to_drive(file_path, Path(file_path).name):
-            return
-
-        st.session_state.df.loc[
-            st.session_state.df["Nome"] == selected_row, "Status"
-        ] = "Pagamento Confirmado"
-        
-        if self.data_manager.save_data(st.session_state.df):
-            st.balloons()
-            st.success("🎉 Presença confirmada com sucesso!")
+        if self.file_handler.upload_to_drive(file_path, Path(file_path).name):
+            st.session_state.df.loc[
+                st.session_state.df["Nome"] == selected_row, "Status"
+            ] = "Pagamento Em Análise"
+            
+            if self.data_manager.save_data(st.session_state.df):
+                st.success("✅ Comprovante enviado com sucesso!")
+                self.clear_upload_form()
+                st.rerun()
 
     def registration_tab(self):
         """Render registration tab."""
@@ -211,7 +225,13 @@ class AttendanceUI:
 
         with st.form(key="cadastro_form"):
             nome = st.text_input("🆕 Nome Completo", "").strip()
-            celular = st.text_input("📞 Número de Celular", "").strip()
+            
+            celular = st.text_input(
+                "📞 Número de Celular", 
+                value="",
+                help="Formato: (XX) XXXXX-XXXX"
+            ).strip()
+            
             tipo = st.selectbox("👤 Tipo", ["Membro", "Convidado"])
             cadastrar = st.form_submit_button("📌 Cadastrar")
 
@@ -222,12 +242,19 @@ class AttendanceUI:
                 st.error("❌ Nome e celular são obrigatórios!")
                 return
 
+            # Format phone number
+            celular_formatted = format_phone(celular)
+            if len(celular_formatted) != 11:
+                st.error("❌ Número de celular inválido!")
+                return
+
             if st.session_state.df["Nome"].str.lower().str.strip().eq(nome.lower()).any():
                 st.error("❌ Já existe um cadastro com esse nome.")
+                st.form_submit_button("📌 Cadastrar", disabled=True)
                 return
 
             novo_registro = pd.DataFrame(
-                [[nome, celular, tipo, "Pagamento Pendente"]],
+                [[nome, celular_formatted, tipo, "Pagamento Pendente"]],
                 columns=st.session_state.df.columns
             )
             st.session_state.df = pd.concat([st.session_state.df, novo_registro], ignore_index=True)
@@ -235,9 +262,7 @@ class AttendanceUI:
             if self.data_manager.save_data(st.session_state.df):
                 st.success("✅ Cadastro realizado com sucesso!")
                 st.balloons()
-                time.sleep(3)
-                self.refresh_data()
-                st.experimental_rerun()
+                st.rerun()
 
 def main():
     """Main application entry point."""
